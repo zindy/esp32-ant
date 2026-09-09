@@ -88,6 +88,42 @@ uint16_t antplus_hrm_bpm_from_events(uint16_t t_prev, uint16_t t_now,
     return (uint16_t)bpm;
 }
 
+/* ====================== Stride Speed & Distance ====================== */
+
+bool antplus_stride_decode(const uint8_t page[8], antplus_stride_data_t *out)
+{
+    if (page == NULL || out == NULL) {
+        return false;
+    }
+
+    out->page_number = page[0]; /* STRIDE pages are not toggle-bit pages */
+
+    // based on https://github.com/Loghorn/ant-plus/blob/master/src/stride-speed-distance-sensors.ts
+    if (out->page_number == 1) {
+        out->time_fractional     = page[1];
+        out->time_integer        = page[2];
+        out->distance_integer    = page[3];
+        out->distance_fractional = (uint8_t)(page[4] >> 4);
+        out->speed_integer       = (uint8_t)(page[4] & 0x0Fu);
+        out->speed_fractional    = page[5];
+        out->stride_count        = page[6];
+        out->update_latency      = page[7];
+    } else if (out->page_number >= 2 && out->page_number <= 15) {
+        out->cadence_integer     = page[3];
+        out->cadence_fractional  = (uint8_t)(page[4] >> 4);
+        out->speed_integer       = (uint8_t)(page[4] & 0x0Fu);
+        out->speed_fractional    = page[5];
+        out->status              = page[7];
+        if (out->page_number == 3) {
+            out->calories = page[6];
+        }
+    }
+    /* Other page numbers (0, 16-255: common pages like 80/81, requests,
+     * manufacturer info): only page_number is filled in. */
+
+    return true;
+}
+
 /* ============================ Bicycle Power ============================ */
 
 bool antplus_power_decode(const uint8_t page[8], antplus_power_data_t *out)

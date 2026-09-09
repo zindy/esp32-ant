@@ -10,9 +10,11 @@
  *   - Heart Rate Monitor (device type 120)
  *   - Bicycle Power, power-only page 0x10 (device type 11)
  *   - Bicycle Speed & Cadence, combined (device type 121)
+ *   - Stride-based Speed and Distance Monitor, pages 1 and 2 (device type 124)
  *
  * References: "ANT+ Device Profile - Heart Rate Monitor",
- * "ANT+ Device Profile - Bicycle Power", "... Bicycle Speed and Cadence".
+ * "ANT+ Device Profile - Bicycle Power", "... Bicycle Speed and Cadence",
+ * "... Stride Based Speed and Distance Monitor".
  */
 #ifndef ANTPLUS_PROFILES_H
 #define ANTPLUS_PROFILES_H
@@ -38,6 +40,7 @@ extern "C" {
 #define ANTPLUS_PERIOD_BIKE_POWER     8182u   /* ~4.00 Hz */
 #define ANTPLUS_PERIOD_BIKE_SPDCAD    8086u   /* ~4.05 Hz */
 #define ANTPLUS_PERIOD_FITNESS_EQUIP  8192u   /* 4.00 Hz  */
+#define ANTPLUS_PERIOD_STRIDE         8134u   /* ~4.03 Hz */
 
 /* ============================ Heart Rate ============================ */
 typedef struct {
@@ -72,6 +75,55 @@ void antplus_hrm_encode_page0(const antplus_hrm_data_t *in, bool toggle,
  */
 uint16_t antplus_hrm_bpm_from_events(uint16_t t_prev, uint16_t t_now,
                                      uint8_t beats_between);
+
+/* ====================== Stride Speed & Distance ====================== */
+/*
+ * Page 1 (main data page) carries time/distance/speed/strides/latency.
+ * Pages 2-15 (supplemental, e.g. page 2) carry cadence/speed/status and,
+ * on page 3 only, calories. A given broadcast is only ever one page, so
+ * fields not populated by that page are left at their previous value in
+ * *out (out is NOT cleared) - inspect out->page_number to know what's
+ * fresh on this call.
+ */
+typedef struct {
+    uint8_t  page_number;        /* 1, or 2..15 for supplemental pages */
+
+    /* Page 1 only. */
+    uint8_t  time_fractional;    /* 1/200 s */
+    uint8_t  time_integer;       /* s, rolls over at 256 */
+    uint8_t  distance_integer;   /* m, rolls over at 256 */
+    uint8_t  distance_fractional;/* 1/16 m (0..15) */
+    uint8_t  stride_count;       /* rolls over at 256 */
+    uint8_t  update_latency;     /* 1/32 s */
+
+    /* Pages 2-15. */
+    uint8_t  cadence_integer;    /* strides/min */
+    uint8_t  cadence_fractional; /* 1/16 strides/min (0..15) */
+    uint8_t  status;             /* bits: location/battery/health/state */
+    uint8_t  calories;           /* page 3 only, kcal */
+
+    /* Common to page 1 and pages 2-15. */
+    uint8_t  speed_integer;      /* m/s */
+    uint8_t  speed_fractional;   /* 1/256 m/s */
+} antplus_stride_data_t;
+
+/*
+ * Decode an 8-byte STRIDE (device type 124) page. Returns false only for
+ * NULL args; unrecognized page numbers (0, 16-255) still populate
+ * page_number and return true with the rest of *out left untouched, so
+ * callers can filter on page_number themselves.
+ */
+bool antplus_stride_decode(const uint8_t page[8], antplus_stride_data_t *out);
+
+/* Combine a page's integer/fractional pair into m/s, kph, or /min. */
+static inline float antplus_stride_speed_mps(uint8_t speed_integer, uint8_t speed_fractional)
+{
+    return (float)speed_integer + (float)speed_fractional / 256.0f;
+}
+static inline float antplus_stride_cadence_spm(uint8_t cadence_integer, uint8_t cadence_fractional)
+{
+    return (float)cadence_integer + (float)(cadence_fractional & 0x0Fu) / 16.0f;
+}
 
 /* ============================ Bicycle Power ============================ */
 typedef struct {
